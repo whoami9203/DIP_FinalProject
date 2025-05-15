@@ -7,7 +7,7 @@ def foreground_segmentation(
         video_path: str,
         background_means: np.ndarray,
         background_covariances: np.ndarray,
-        alpha: float = 7.0
+        alpha: float = 9.0
     ) -> tuple:
     """
     Perform foreground segmentation using Gaussian background modeling.

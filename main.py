@@ -158,10 +158,6 @@ def main():
         print("Background model already exists. Loading...")
         background_means = np.load(means_model_path)
         background_covariances = np.load(covariances_model_path)
-
-        # Print covariances to file for inspection
-        print_covariances_to_file(background_covariances, 
-                                 os.path.join(args.model_dir, "background_covariances.txt"))
     else:
         # Perform k-means clustering on the video
         print("Performing k-means clustering on the video...")
@@ -177,6 +173,10 @@ def main():
         cv2.imwrite(background_image_path, background_means)
         print(f"Background image saved to {background_image_path}")
 
+    # Print covariances to file for inspection
+    print_covariances_to_file(background_covariances, 
+                                os.path.join(args.model_dir, "background_covariances.txt"))
+    
     # Generate the foreground mask
     print(f"Segmenting foreground with alpha={args.alpha}...")
     foreground_masks, diff_stats = foreground_segmentation(
