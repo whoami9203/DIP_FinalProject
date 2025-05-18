@@ -9,6 +9,55 @@ from gpu_background_modeling import gpu_k_means_background_clustering
 from mask_generation import foreground_segmentation, apply_mask_to_video
 from watershed import watershed_video
 
+import cv2
+import numpy as np
+
+def save_mask_video(mask_frames, output_path, fps=15):
+    """
+    Save a sequence of binary masks (grayscale) as a video.
+    
+    Parameters:
+        mask_frames: numpy array of shape (num_frames, H, W) or (num_frames, H, W, 1)
+        output_path: path to the output video file
+        fps: frames per second for output video
+    """
+    h, w = mask_frames.shape[1:3]
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # or use 'XVID'
+    out = cv2.VideoWriter(output_path, fourcc, fps, (w, h), isColor=False)
+
+    for mask in mask_frames:
+        if len(mask.shape) == 3:
+            mask = mask[:, :, 0]
+        out.write(mask.astype(np.uint8))
+
+    out.release()
+    print(f"✅ Saved mask video to: {output_path}")
+
+
+import cv2
+import numpy as np
+
+def read_mask_video(video_path):
+    """
+    Read a binary mask video into a NumPy array.
+    Returns:
+        mask_frames: ndarray of shape (num_frames, height, width)
+    """
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+        frames.append(gray)
+
+    cap.release()
+    return np.stack(frames, axis=0)  # shape: (N, H, W)
+
+
+
 def save_background_model(background_model, filepath):
     """
     Save the background model ndarray to a file preserving float32 precision.
@@ -180,21 +229,33 @@ def main():
                                 os.path.join(args.model_dir, f"{video_basename}_background_covariances.txt"))
     
     # Generate the foreground mask
-    print(f"Segmenting foreground with alpha={args.alpha}...")
-    foreground_masks, diff_stats = foreground_segmentation(
-        VIDEO_PATH, background_means, background_covariances, alpha=args.alpha)
+    FOREGROUND_MASK_PATH = f"Masks/{video_basename}_foreground_mask.mp4"
+    if os.path.exists(FOREGROUND_MASK_PATH):
+        print(f"Uses {video_basename}_foreground_mask")
+        foreground_masks = read_mask_video(FOREGROUND_MASK_PATH)
+    else:
+        print(f"Segmenting foreground with alpha={args.alpha}...")
+        foreground_masks, diff_stats = foreground_segmentation(
+            VIDEO_PATH, background_means, background_covariances, alpha=args.alpha)
+        save_mask_video(foreground_masks, FOREGROUND_MASK_PATH, args.fps)
     
-    # Print global statistics
-    print("Difference magnitude statistics:")
-    print(f"Mean variance: {diff_stats['global']['variance_mean']:.4f}")
-    print(f"Median of all pixels: {diff_stats['global']['q2_mean']:.4f}")
-    print(f"q1 median: {diff_stats['global']['q1_median']:.4f}")
-    print(f"q2 median: {diff_stats['global']['q2_median']:.4f}")
-    print(f"q3 median: {diff_stats['global']['q3_median']:.4f}")
-    print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
+        # Print global statistics
+        print("Difference magnitude statistics:")
+        print(f"Mean variance: {diff_stats['global']['variance_mean']:.4f}")
+        print(f"Median of all pixels: {diff_stats['global']['q2_mean']:.4f}")
+        print(f"q1 median: {diff_stats['global']['q1_median']:.4f}")
+        print(f"q2 median: {diff_stats['global']['q2_median']:.4f}")
+        print(f"q3 median: {diff_stats['global']['q3_median']:.4f}")
+        print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
     
     # Watershed Transform
-    watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
+    WATERSHED_MASK_PATH = f"Masks/{video_basename}_foreground_mask.mp4"
+    if os.path.exists(WATERSHED_MASK_PATH):
+        print(f"Uses {video_basename}_watershed_mask")
+        watershed_mask = read_mask_video(WATERSHED_MASK_PATH)
+    else:
+        print("Watershed...")
+        watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
 
     # Apply the mask to the video
     print(f"Applying mask to video and saving result to {args.output}...")

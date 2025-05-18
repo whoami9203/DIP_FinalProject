@@ -319,9 +319,10 @@ def watershed_video(maskS, original_rgb_path, beta=0.5):
         ret_rgb, frame_rgb = cap_rgb.read()
         if not ret_rgb:
             break
-        frame_mask = maskS[idx]
+        mask_gray = maskS[idx]
+        print(mask_gray.shape)
 
-        mask_gray = cv2.cvtColor(frame_mask, cv2.COLOR_BGR2GRAY)
+        # mask_gray = cv2.cvtColor(frame_mask, cv2.COLOR_BGR2GRAY)
         _, mask_s = cv2.threshold(mask_gray, 10, 255, cv2.THRESH_BINARY)
 
         markers = proposed_watershed_image(frame_rgb)
