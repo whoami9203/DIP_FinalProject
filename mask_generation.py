@@ -3,10 +3,12 @@ import numpy as np
 from tqdm import tqdm
 import multiprocessing as mp
 
+from shadow_cancellation import shadow_cancellation
+
 def masks_noise_removal(
         masks: np.ndarray,
         min_area: int = 60,
-        min_hole_area: int = 15,  # New parameter for minimum hole size
+        min_hole_area: int = 80,  # New parameter for minimum hole size
         closing_kernel_size: int = 5
         ) -> np.ndarray:
     """
@@ -224,6 +226,14 @@ def foreground_segmentation(
 
     # Apply noise removal to the masks
     foreground_masks = masks_noise_removal(foreground_masks)
+
+    # Apply shadow cancellation if needed
+    # foreground_masks = shadow_cancellation(
+    #     video_path=video_path,
+    #     masks=foreground_masks,
+    #     background_mean=background_means,
+    #     window_size=3
+    # )
     
     return foreground_masks, mahalanobis_statistics
 

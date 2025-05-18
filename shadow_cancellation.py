@@ -1,16 +1,17 @@
 import cv2
 import numpy as np
 from tqdm import tqdm
+import os
 import multiprocessing as mp
 
 def shadow_cancellation(
         video_path: str,
         masks: np.ndarray,
         background_mean: np.ndarray,
-        T_L: float = 50.0,     # Luminance threshold
+        T_L: float = 64.0,     # Luminance threshold
         T_C1: float = 10.0,    # Lower chrominance threshold
-        T_C2: float = 30.0,    # Upper chrominance threshold
-        T_G1: float = 5.0,     # Lower gradient threshold
+        T_C2: float = 20.0,    # Upper chrominance threshold
+        T_G1: float = 10.0,     # Lower gradient threshold
         T_G2: float = 20.0,    # Upper gradient threshold
         T_S: float = 0.5,      # Shadow confidence threshold
         window_size: int = 3   # Window size for gradient density
@@ -51,6 +52,33 @@ def shadow_cancellation(
     if (frame_height, frame_width, 3) != background_mean.shape:
         raise ValueError("Video dimensions don't match background model dimensions")
     
+    # Extract base name of the video for debug outputs
+    video_basename = os.path.splitext(os.path.basename(video_path))[0]
+    
+    # Create Shadow directory if it doesn't exist
+    os.makedirs("Shadow", exist_ok=True)
+    
+    # Setup debug video writers
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    
+    lumin_writer = cv2.VideoWriter(
+        os.path.join("Shadow", f"{video_basename}_Lumin.mp4"), 
+        fourcc, fps, (frame_width, frame_height), False
+    )
+    chrom_writer = cv2.VideoWriter(
+        os.path.join("Shadow", f"{video_basename}_Chrom.mp4"), 
+        fourcc, fps, (frame_width, frame_height), False
+    )
+    grad_writer = cv2.VideoWriter(
+        os.path.join("Shadow", f"{video_basename}_Grad.mp4"), 
+        fourcc, fps, (frame_width, frame_height), False
+    )
+    shadow_writer = cv2.VideoWriter(
+        os.path.join("Shadow", f"{video_basename}_Shadow.mp4"), 
+        fourcc, fps, (frame_width, frame_height), False
+    )
+
     # Convert background model from RGB to YCrCb
     background_ycrcb = cv2.cvtColor(background_mean.astype(np.uint8), cv2.COLOR_RGB2YCrCb)
     background_y = background_ycrcb[:, :, 0].astype(np.float32)
@@ -131,6 +159,19 @@ def shadow_cancellation(
             
             # Step 4: Compute final shadow confidence score
             S = S_L * S_C * S_G
+
+            # Write debug video frames
+            # Convert scores to 8-bit grayscale for visualization (0-255)
+            S_L_vis = (S_L * 255).astype(np.uint8)
+            S_C_vis = (S_C * 255).astype(np.uint8)
+            S_G_vis = (S_G * 255).astype(np.uint8)
+            S_vis = (S * 255).astype(np.uint8)
+            
+            # Write frames to debug videos
+            lumin_writer.write(S_L_vis)
+            chrom_writer.write(S_C_vis)
+            grad_writer.write(S_G_vis)
+            shadow_writer.write(S_vis)
             
             # Step 5 & 6: Edge detection and shadow filtering
             # For each connected component in the mask
@@ -177,6 +218,10 @@ def shadow_cancellation(
             pbar.update(1)
     
     cap.release()
+    lumin_writer.release()
+    chrom_writer.release()
+    grad_writer.release()
+    shadow_writer.release()
     
     # Report statistics
     original_fg = np.sum(masks > 0)
@@ -185,5 +230,6 @@ def shadow_cancellation(
     
     print(f"Shadow cancellation complete. Processed {frame_idx} frames.")
     print(f"Removed approximately {reduction:.2f}% of pixels from foreground masks.")
+    print(f"Debug videos saved to Shadow/{video_basename}_*.mp4")
     
     return refined_masks.astype(np.uint8)
