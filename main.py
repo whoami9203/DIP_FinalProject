@@ -7,7 +7,6 @@ import os
 from preprocessing import preprocess_video
 from gpu_background_modeling import gpu_k_means_background_clustering
 from mask_generation import foreground_segmentation, apply_mask_to_video
-from watershed import watershed_video
 
 def save_background_model(background_model, filepath):
     """
@@ -192,16 +191,13 @@ def main():
     print(f"q2 median: {diff_stats['global']['q2_median']:.4f}")
     print(f"q3 median: {diff_stats['global']['q3_median']:.4f}")
     print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
-    
-    # Watershed Transform
-    watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
 
     # Apply the mask to the video
     print(f"Applying mask to video and saving result to {args.output}...")
     apply_mask_to_video(
         input_video_path=VIDEO_PATH,
         output_video_path=args.output, 
-        foreground_masks=watershed_mask,
+        foreground_masks=foreground_masks,
         darkness_factor=args.darkness_factor
     )
     
