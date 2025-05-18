@@ -338,7 +338,7 @@ def watershed_video(maskS, original_rgb_path, beta=0.5):
 
 process_video(
     maskS_path="Results/output2.mp4",            # Binary shadow-cancelled mask video
-    original_rgb_path="Video/preprocessed_test2.mp4",  # Original RGB video (needed for watershed gradient)
+    original_rgb_path="Results/preprocessed/preprocessed_test2.mp4",  # Original RGB video (needed for watershed gradient)
     output_path="Results/maskW_output2.mp4",          # Final output with refined masks
     beta=0.4                                 # Region coverage threshold
 )
