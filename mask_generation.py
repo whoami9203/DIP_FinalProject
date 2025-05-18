@@ -3,6 +3,101 @@ import numpy as np
 from tqdm import tqdm
 import multiprocessing as mp
 
+def masks_noise_removal(
+        masks: np.ndarray,
+        min_area: int = 60,
+        min_hole_area: int = 15,  # New parameter for minimum hole size
+        closing_kernel_size: int = 5
+        ) -> np.ndarray:
+    """
+    Remove noise from foreground masks by:
+    1. Eliminating small white connected components (foreground)
+    2. Filling small black holes (background)
+    3. Optional morphological closing to smooth boundaries
+    
+    Args:
+        masks (np.ndarray): Binary foreground masks with shape (num_frames, height, width)
+        min_area (int): Minimum area for a white component to be preserved
+        min_hole_area (int): Minimum area for a black hole to be preserved
+        closing_kernel_size (int): Size of the kernel for morphological closing
+    
+    Returns:
+        np.ndarray: Cleaned binary masks with small components and holes removed
+    """
+    if len(masks.shape) != 3:
+        raise ValueError("Masks must be a 3D array (num_frames, height, width)")
+    
+    cleaned_masks = np.zeros_like(masks)
+    num_frames = masks.shape[0]
+    
+    # Create kernel for closing operation
+    kernel = np.ones((closing_kernel_size, closing_kernel_size), np.uint8)
+    
+    print(f"Cleaning masks: removing components < {min_area} pixels and holes < {min_hole_area} pixels...")
+    
+    for frame_idx in tqdm(range(num_frames), desc="Cleaning masks"):
+        # Get current frame mask
+        mask = masks[frame_idx]
+        
+        # STEP 1: Remove small white connected components
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+            mask, connectivity=4, ltype=cv2.CV_32S
+        )
+        
+        # Create a clean mask, starting with zeros
+        clean_mask = np.zeros_like(mask)
+        
+        # Skip label 0 which is the background
+        for label in range(1, num_labels):
+            # Get area of the component
+            area = stats[label, cv2.CC_STAT_AREA]
+            
+            # If area is large enough, keep this component
+            if area >= min_area:
+                clean_mask[labels == label] = 1
+        
+        # STEP 2: Remove small black holes (invert, find components, remove small ones, invert back)
+        # Invert the mask to make holes into foreground objects
+        inverted_mask = 1 - clean_mask
+        
+        # Find connected black components (holes)
+        num_holes, hole_labels, hole_stats, _ = cv2.connectedComponentsWithStats(
+            inverted_mask, connectivity=4, ltype=cv2.CV_32S
+        )
+        
+        # Create a mask of holes to fill (small black areas)
+        holes_to_fill = np.zeros_like(inverted_mask)
+        
+        # Skip label 0 which is now the "background" in the inverted image
+        # (which was actually the foreground in the original)
+        for label in range(1, num_holes):
+            # Get area of the hole
+            hole_area = hole_stats[label, cv2.CC_STAT_AREA]
+            
+            # If hole is small enough, mark it to be filled (converted to foreground)
+            if hole_area < min_hole_area:
+                holes_to_fill[hole_labels == label] = 1
+        
+        # Fill the small holes by adding them to the clean mask
+        clean_mask = clean_mask | holes_to_fill
+        
+        # Apply optional morphological closing to smooth boundaries
+        # Uncomment if needed
+        # clean_mask = cv2.morphologyEx(clean_mask, cv2.MORPH_CLOSE, kernel)
+        
+        # Store the cleaned mask
+        cleaned_masks[frame_idx] = clean_mask
+    
+    # Report statistics
+    original_white_pixels = np.sum(masks)
+    cleaned_white_pixels = np.sum(cleaned_masks)
+    percentage_change = 100 * (original_white_pixels - cleaned_white_pixels) / max(1, original_white_pixels)
+    
+    if percentage_change > 0:
+        print(f"Noise removal complete. Removed {percentage_change:.2f}% of foreground pixels.")
+    
+    return cleaned_masks
+
 def foreground_segmentation(
         video_path: str,
         background_means: np.ndarray,
@@ -126,6 +221,9 @@ def foreground_segmentation(
         'q3_median': np.median(mahalanobis_statistics['q3']),
         'iqr_median': np.median(mahalanobis_statistics['iqr'])
     }
+
+    # Apply noise removal to the masks
+    foreground_masks = masks_noise_removal(foreground_masks)
     
     return foreground_masks, mahalanobis_statistics
 

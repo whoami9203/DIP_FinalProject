@@ -1,16 +1,136 @@
 import cupy as cp
-import cuml
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 import multiprocessing as mp
 
-# Import cuML K-means
-from cuml.cluster import KMeans
+def load_k1_stats_kernel():
+    """Load and compile the CUDA kernel for k=1 statistics"""
+    with open('k1_stats.cu', 'r') as f:
+        cuda_source = f.read()
+    
+    # Create a RawKernel from the source code
+    k1_kernel = cp.RawKernel(cuda_source, 'k1_stats_kernel')
+    return k1_kernel
 
+def load_kmeans_kernel():
+    """Load and compile the CUDA kernel"""
+    with open('batch_kmeans.cu', 'r') as f:
+        cuda_source = f.read()
+    
+    # Create a RawKernel from the source code
+    kmeans_kernel = cp.RawKernel(cuda_source, 'batch_kmeans_kernel')
+    return kmeans_kernel
 
-def gpu_k_means_background_clustering(video_path: str, max_k=3) -> tuple:
+def load_postprocessing_kernel():
+    """Load and compile the CUDA kernel for post-processing"""
+    with open('postprocess.cu', 'r') as f:
+        cuda_source = f.read()
+    
+    # Create a RawKernel from the source code
+    postprocess_kernel = cp.RawKernel(cuda_source, 'postprocess_kernel')
+    return postprocess_kernel
+
+def gpu_k1_stats(k1_kernel, pixel_data_gpu):
+    """Calculate k=1 statistics using GPU for all pixels"""
+    num_pixels = pixel_data_gpu.shape[0]
+    num_frames = pixel_data_gpu.shape[1]
+    channels = pixel_data_gpu.shape[2]
+    
+    # Allocate output arrays on GPU
+    means_gpu = cp.zeros((num_pixels, channels), dtype=cp.float32)
+    variances_gpu = cp.zeros((num_pixels, channels), dtype=cp.float32)
+    bics_gpu = cp.zeros(num_pixels, dtype=cp.float32)
+    
+    # Configure kernel launch
+    threads_per_block = 256
+    blocks_needed = (num_pixels + threads_per_block - 1) // threads_per_block
+    
+    # Launch kernel
+    k1_kernel(
+        (blocks_needed,),
+        (threads_per_block,),
+        (pixel_data_gpu, means_gpu, variances_gpu, bics_gpu,
+         num_pixels, num_frames, channels)
+    )
+    
+    return means_gpu, variances_gpu, bics_gpu
+
+def gpu_batch_kmeans(kmeans_kernel, postprocess_kernel, batch_data_gpu, k, max_iterations=100):
+    """
+    Execute the custom CUDA kernel for batch K-means
+    
+    Args:
+        batch_data_gpu: CuPy array with shape (num_pixels, num_frames, channels)
+        k: Number of clusters
+        max_iterations: Maximum K-means iterations
+        
+    Returns:
+        tuple: (bics, centers, covariances) as CuPy arrays
+    """
+    # Get dimensions
+    num_pixels = batch_data_gpu.shape[0]
+    num_frames = batch_data_gpu.shape[1]
+    channels = batch_data_gpu.shape[2]
+    
+    # Allocate output arrays on GPU
+    centers_gpu = cp.zeros((num_pixels, k, channels), dtype=cp.float32)
+    labels_gpu = cp.zeros((num_pixels, num_frames), dtype=cp.int32)
+    bics_gpu = cp.zeros(num_pixels, dtype=cp.float32)
+    largest_ids_gpu = cp.zeros(num_pixels, dtype=cp.int32)
+    
+    # Calculate shared memory size
+    # centers + new_centers + cluster_sizes + distances + probability arrays
+    shared_mem_size = (k * channels * 2 + k + 2 * num_frames) * 4  # bytes
+    
+    # Launch configuration
+    threads_per_block = min(512, num_frames)  # Adjust based on your GPU
+    
+    # Launch kernel
+    kmeans_kernel(
+        (num_pixels,),       # Grid dimensions: one block per pixel
+        (threads_per_block,), # Block dimensions: threads cooperate on one pixel
+        (batch_data_gpu, centers_gpu, labels_gpu, bics_gpu, largest_ids_gpu,
+        num_pixels, num_frames, channels, k, max_iterations),
+        shared_mem=shared_mem_size
+    )
+    
+    # Now compute covariances based on the assignments and largest cluster
+    covariances_gpu = cp.zeros((num_pixels, channels), dtype=cp.float32)
+    
+    # Extract best centers (those of the largest cluster)
+    best_centers = cp.zeros((num_pixels, channels), dtype=cp.float32)
+    
+    # This could be a separate kernel, but for simplicity we'll use CuPy ops
+    # for i in range(num_pixels):
+    #     largest_id = largest_ids_gpu[i]
+    #     best_centers[i] = centers_gpu[i, largest_id]
+        
+    #     # Calculate covariance for largest cluster
+    #     mask = (labels_gpu[i] == largest_id)
+    #     if cp.any(mask):
+    #         points = batch_data_gpu[i][mask]
+    #         covariances_gpu[i] = cp.maximum(cp.var(points, axis=0), 0.05)
+    #     else:
+    #         covariances_gpu[i] = cp.ones(channels, dtype=cp.float32) * 0.05
+
+    # Configure kernel launch
+    threads_per_block_post = 256
+    blocks_needed = (num_pixels + threads_per_block_post - 1) // threads_per_block_post
+    
+    # Launch post-processing kernel
+    postprocess_kernel(
+        (blocks_needed,),
+        (threads_per_block_post,),
+        (centers_gpu, labels_gpu, largest_ids_gpu, batch_data_gpu,
+         best_centers, covariances_gpu, 
+         num_pixels, num_frames, channels, k)
+    )
+    
+    return bics_gpu, best_centers, covariances_gpu
+
+def gpu_k_means_background_clustering(video_path: str, max_k=3, variance_multiplier=2.0) -> tuple:
     """
     Perform K-means clustering on the background of a video in temporal domain using GPU acceleration.
     For each pixel position, tests different K values and selects the best one using BIC.
@@ -19,6 +139,7 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3) -> tuple:
     Args:
         video_path (str): Path to the input video file.
         max_k (int): Maximum number of clusters to consider (default: 3).
+        variance_multiplier (float): Multiplier for median variance to set threshold (default: 2.0).
         
     Returns:
         tuple: (means, covariances) where:
@@ -61,7 +182,7 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3) -> tuple:
     
     # Initialize result arrays for background model
     background_means = np.zeros((height, width, 3), dtype=np.float32)
-    background_covariances = np.zeros((height, width, 3), dtype=np.float32)  # Diagonal elements only
+    background_covariances = np.zeros((height, width, 3), dtype=np.float32)
     
     # Store optimal K values for statistics
     optimal_k_values = np.zeros((height, width), dtype=np.int32)
@@ -69,14 +190,7 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3) -> tuple:
     # Dictionary to track best BIC score for each pixel
     best_bics = {}
     
-    # Main processing loop with batched GPU processing
-    print("Performing GPU-accelerated K-means background clustering with batch processing...")
-    
-    # Process pixels in batches for better GPU utilization
-    batch_size = 1000  # Adjust based on GPU memory
-    total_pixels = height * width
-    
-    # Convert all pixel values to a list for batch processing
+    # Convert pixel values to a flat list for batch processing
     pixel_list = []
     pixel_positions = []
     
@@ -85,100 +199,147 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3) -> tuple:
             pixel_list.append(pixel_values[y, x])
             pixel_positions.append((y, x))
     
-    # Process in batches
-    for batch_start in tqdm(range(0, total_pixels, batch_size), desc="Processing batches"):
+    total_pixels = height * width
+    exception_count = 0
+    exception_message = None
+    
+    # STEP 1: Process all pixels for k=1 case (no clustering needed)
+    print("Computing k=1 case for all pixels...")
+    
+    # Load the k=1 kernel
+    k1_kernel = load_k1_stats_kernel()
+
+    # Process in batches to optimize GPU memory usage
+    batch_size = min(20480, total_pixels)  # Adjust based on GPU memory
+    k1_means = np.zeros((total_pixels, 3), dtype=np.float32)
+    k1_variances = np.zeros((total_pixels, 3), dtype=np.float32)
+    k1_bics = np.zeros(total_pixels, dtype=np.float32)
+
+    for batch_start in tqdm(range(0, total_pixels, batch_size), desc="Computing k=1 statistics"):
         batch_end = min(batch_start + batch_size, total_pixels)
-        batch_positions = pixel_positions[batch_start:batch_end]
+        batch_size_actual = batch_end - batch_start
+        
+        # Get this batch of pixels
         batch_pixels = pixel_list[batch_start:batch_end]
         
-        # Process each K value across all pixels in the batch
-        for k in range(1, max_k + 1):
-            # Special case for k=1
-            if k == 1:
-                # For k=1, just compute mean and variance directly
-                for i, (y, x) in enumerate(batch_positions):
-                    temporal_data = batch_pixels[i]
-                    
-                    # Only update if this is the first k we're processing for this pixel
-                    if optimal_k_values[y, x] == 0:
-                        background_means[y, x] = np.mean(temporal_data, axis=0)
-                        background_covariances[y, x] = np.maximum(np.var(temporal_data, axis=0), 0.1)
-                        optimal_k_values[y, x] = 1
-                
-                # All pixels automatically get a BIC score for k=1
-                continue
+        try:
+            # Transfer to GPU
+            batch_data = np.array(batch_pixels, dtype=np.float32)
+            batch_data_gpu = cp.asarray(batch_data)
             
-            try:
-                # Process in sub-batches if needed (for large K values with many pixels)
-                sub_batch_size = max(1, min(200, len(batch_pixels)))
+            # Process on GPU
+            batch_means_gpu, batch_variances_gpu, batch_bics_gpu = gpu_k1_stats(
+                k1_kernel, batch_data_gpu
+            )
+            
+            # Transfer results back to CPU
+            k1_means[batch_start:batch_end] = cp.asnumpy(batch_means_gpu)
+            k1_variances[batch_start:batch_end] = cp.asnumpy(batch_variances_gpu)
+            k1_bics[batch_start:batch_end] = cp.asnumpy(batch_bics_gpu)
+            
+            # Free GPU memory
+            del batch_data_gpu, batch_means_gpu, batch_variances_gpu, batch_bics_gpu
+            cp.get_default_memory_pool().free_all_blocks()
+            
+        except Exception as e:
+            print(f"Error in GPU k=1 processing: {e}")
+            
+            # Fall back to CPU for this batch
+            print("Falling back to CPU for this batch...")
+            for i in range(batch_start, batch_end):
+                temporal_data = pixel_list[i-batch_start]
                 
-                for sub_batch_start in range(0, len(batch_pixels), sub_batch_size):
-                    sub_batch_end = min(sub_batch_start + sub_batch_size, len(batch_pixels))
-                    sub_batch_pixels = batch_pixels[sub_batch_start:sub_batch_end]
-                    sub_batch_positions = batch_positions[sub_batch_start:sub_batch_end]
+                # Calculate mean and variance for k=1
+                k1_means[i] = np.mean(temporal_data, axis=0)
+                k1_variances[i] = np.maximum(np.var(temporal_data, axis=0), 0.05)
+                
+                # Calculate BIC score for k=1
+                n_samples = len(temporal_data)
+                n_dims = temporal_data.shape[1]
+                var = np.mean(k1_variances[i])
+                
+                if var <= 0:
+                    var = 1e-6
+                
+                log_likelihood = -0.5 * n_samples * n_dims * np.log(2 * np.pi * var)
+                log_likelihood -= 0.5 * n_samples * n_dims
+                n_params = n_dims + 1  # Mean + variance
+                k1_bics[i] = log_likelihood - 0.5 * n_params * np.log(n_samples)
+
+    # Store k=1 results for all pixels
+    for i in range(total_pixels):
+        y, x = pixel_positions[i]
+        optimal_k_values[y, x] = 1
+        background_means[y, x] = k1_means[i]
+        background_covariances[y, x] = k1_variances[i]
+        best_bics[(y, x)] = k1_bics[i]
+    
+    # STEP 2: Process k>1 cases using GPU acceleration and batching
+    if max_k > 1:
+        print("Computing k>1 cases using GPU acceleration...")
+        
+        # Calculate variance for each pixel position (using mean of RGB variances)
+        pixel_variances = np.array([np.mean(k1_variances[i]) for i in range(total_pixels)])
+        
+        # Use median variance as threshold basis
+        q1_variance = np.percentile(pixel_variances, 25)
+        variance_threshold = q1_variance * variance_multiplier
+        
+        print(f"q1 variance: {q1_variance:.2f}")
+        print(f"Using variance threshold: {variance_threshold:.2f} (q1 × {variance_multiplier})")
+        
+        # Identify high-variance pixels
+        high_variance_indices = np.where(pixel_variances > variance_threshold)[0]
+        
+        print(f"Found {len(high_variance_indices)} high-variance pixels ({len(high_variance_indices)/total_pixels*100:.2f}%) that might benefit from k>1")
+        
+        if len(high_variance_indices) > 0:
+            # Only process high-variance pixels for k>1
+            high_var_positions = [pixel_positions[i] for i in high_variance_indices]
+            high_var_pixels = [pixel_list[i] for i in high_variance_indices]
+            
+            # Process in batches to optimize GPU memory usage
+            batch_size = min(20480, len(high_var_positions))  # Adjust based on GPU memory
+            
+            # Load the CUDA kernel
+            kmeans_kernel = load_kmeans_kernel()
+            postprocess_kernel = load_postprocessing_kernel()
+
+            # Process each k value for all high-variance pixels
+            for k in range(2, max_k + 1):
+                print(f"Processing k={k} for {len(high_var_positions)} pixels")
+                
+                for batch_start in tqdm(range(0, len(high_var_positions), batch_size), desc=f"Processing k={k} batches"):
+                    batch_end = min(batch_start + batch_size, len(high_var_positions))
+                    batch_positions = high_var_positions[batch_start:batch_end]
+                    batch_pixels = high_var_pixels[batch_start:batch_end]
                     
-                    # Process each pixel in sub-batch
-                    for i, (y, x) in enumerate(sub_batch_positions):
-                        temporal_data = sub_batch_pixels[i]
+                    try:
+                        # Transfer entire batch to GPU at once
+                        batch_data = np.array(batch_pixels)
+                        batch_data_gpu = cp.asarray(batch_data, dtype=cp.float32)
                         
-                        # Skip if we've already found a better K for this pixel
-                        if optimal_k_values[y, x] > k:
-                            continue
-                            
-                        try:
-                            # Transfer to GPU
-                            temporal_data_gpu = cp.asarray(temporal_data)
-                            
-                            # Run K-means
-                            kmeans = KMeans(n_clusters=k, init='k-means++', random_state=0)
-                            kmeans.fit(temporal_data_gpu)
-                            
-                            # Get cluster assignments and centers
-                            labels = kmeans.labels_
-                            centers = kmeans.cluster_centers_
-                            
-                            # Calculate BIC using helper function
-                            bic = calculate_bic_gpu(
-                                temporal_data_gpu, 
-                                labels, 
-                                centers, 
-                                k, 
-                                len(temporal_data), 
-                                temporal_data.shape[1]
-                            )
-                            
-                            # Compare with existing best BIC for this pixel
-                            current_best_k = optimal_k_values[y, x]
-                            
-                            if current_best_k == 0 or bic > best_bics.get((y, x), float('-inf')):
-                                # This is a better clustering
-                                best_bics[(y, x)] = bic
+                        # Process all pixels in parallel on GPU
+                        batch_bics, batch_centers, batch_covariances = gpu_batch_kmeans(
+                            kmeans_kernel, postprocess_kernel, batch_data_gpu, k, 100
+                        )
+                        
+                        # Transfer results back to CPU
+                        batch_bics_cpu = cp.asnumpy(batch_bics)
+                        batch_centers_cpu = cp.asnumpy(batch_centers)
+                        batch_covariances_cpu = cp.asnumpy(batch_covariances)
+                                            
+                        # After processing all pixels in the batch, update the best values
+                        for i, (y, x) in enumerate(batch_positions):
+                            # Only update if this clustering is better than the existing one
+                            if batch_bics_cpu[i] > best_bics.get((y, x), float('-inf')):
+                                best_bics[(y, x)] = batch_bics_cpu[i]
                                 optimal_k_values[y, x] = k
-                                
-                                # Find largest cluster
-                                labels_cpu = cp.asnumpy(labels)
-                                centers_cpu = cp.asnumpy(centers)
-                                
-                                cluster_sizes = np.bincount(labels_cpu, minlength=k)
-                                largest_cluster_id = np.argmax(cluster_sizes)
-                                
-                                # Get pixels belonging to largest cluster
-                                largest_cluster_mask = (labels_cpu == largest_cluster_id)
-                                cluster_points = temporal_data[largest_cluster_mask]
-                                
-                                # Calculate mean and covariance of largest cluster
-                                background_means[y, x] = centers_cpu[largest_cluster_id]
-                                background_covariances[y, x] = np.maximum(np.var(cluster_points, axis=0), 0.1)
+                                background_means[y, x] = batch_centers_cpu[i]
+                                background_covariances[y, x] = batch_covariances_cpu[i]
                         
-                        except Exception as e:
-                            # If error occurs, fall back to k=1 if no valid clustering yet
-                            if optimal_k_values[y, x] == 0:
-                                optimal_k_values[y, x] = 1
-                                background_means[y, x] = np.mean(temporal_data, axis=0)
-                                background_covariances[y, x] = np.maximum(np.var(temporal_data, axis=0), 0.1)
-                                
-            except Exception as e:
-                print(f"Error processing batch with k={k}: {e}")
+                    except Exception as e:
+                        print(f"Error processing batch with k={k}: {e}")
     
     # Report statistics on selected K values
     k_counts = np.bincount(optimal_k_values.flatten(), minlength=max_k+1)
@@ -186,42 +347,9 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3) -> tuple:
     for k in range(1, max_k+1):
         print(f"  K={k}: {k_counts[k]} pixels ({k_counts[k]/total_pixels*100:.2f}%)")
     
+    print(f"Exception count during processing: {exception_count}")
+    if exception_count > 0:
+        print(f"Last exception message: {exception_message}")
     print("\nGPU-accelerated background modeling complete.")
     
     return (background_means, background_covariances)
-
-
-def calculate_bic_gpu(data_gpu, labels, centers, k, n_samples, n_dims):
-    """Helper function to calculate BIC score for a clustering result."""
-    # Calculate log-likelihood
-    log_likelihood = 0
-    
-    # Calculate within-cluster variance
-    variances = []
-    for cluster_id in range(k):
-        cluster_mask = (labels == cluster_id)
-        if cp.any(cluster_mask):
-            cluster_points = data_gpu[cluster_mask]
-            cluster_center = centers[cluster_id]
-            # Average squared Euclidean distance to center
-            var = cp.mean(cp.sum((cluster_points - cluster_center) ** 2, axis=1))
-            variances.append(var)
-    
-    if not variances:
-        return float('-inf')
-        
-    avg_var = cp.mean(cp.array(variances))
-    if avg_var <= 0:
-        avg_var = 1e-6  # Avoid log(0)
-    
-    # Calculate log-likelihood (approximate, assuming spherical clusters)
-    log_likelihood = -0.5 * n_samples * n_dims * cp.log(2 * cp.pi * avg_var)
-    log_likelihood -= 0.5 * n_samples * n_dims  # Constant term from distance
-    
-    # Parameters: k centers (k*dims) and k variances
-    n_params = k * n_dims + k
-    
-    # BIC = log(L) - 0.5 * num_params * log(n)
-    bic = log_likelihood - 0.5 * n_params * cp.log(n_samples)
-    
-    return float(bic)

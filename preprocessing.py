@@ -89,7 +89,7 @@ def preprocess_video(
     print(f"Target: {target_width}x{target_height} @ {target_fps}fps")
     
     # Calculate frame sampling rate based on original and target fps
-    frame_sample_interval = max(1, int(orig_fps / target_fps))
+    frame_sample_interval = max(1, round(orig_fps / target_fps))
     estimated_output_frames = frame_count // frame_sample_interval
     
     # Set up the video writer
