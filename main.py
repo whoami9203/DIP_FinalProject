@@ -91,7 +91,7 @@ def parse_arguments():
                         help="Path to input video file")
     parser.add_argument("--output", "-o", type=str, default="Results/masked_video.mp4",
                         help="Path to output video file")
-    parser.add_argument("--model-dir", type=str, default=".",
+    parser.add_argument("--model-dir", type=str, default="Models/",
                         help="Directory to save/load background models")
                         
     # Processing options
@@ -134,11 +134,12 @@ def main():
     os.makedirs(args.model_dir, exist_ok=True)
     
     # Define model paths
-    means_model_path = os.path.join(args.model_dir, "background_means_model.npy")
-    covariances_model_path = os.path.join(args.model_dir, "background_covariances_model.npy")
+    VIDEO_PATH = args.input
+    video_basename = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
+    means_model_path = os.path.join(args.model_dir, f"{video_basename}_means_model.npy")
+    covariances_model_path = os.path.join(args.model_dir, f"{video_basename}_covariances_model.npy")
     
     # Preprocessing
-    VIDEO_PATH = args.input
     if args.preprocess:
         preprocessed_dir = os.path.join(os.path.dirname(args.output), "preprocessed")
         os.makedirs(preprocessed_dir, exist_ok=True)
@@ -169,13 +170,13 @@ def main():
         save_background_model(background_covariances, covariances_model_path)
 
         # Save the background image
-        background_image_path = os.path.join(args.model_dir, "background.png")
+        background_image_path = os.path.join(args.model_dir, f"{video_basename}_background.png")
         cv2.imwrite(background_image_path, background_means)
         print(f"Background image saved to {background_image_path}")
 
     # Print covariances to file for inspection
     print_covariances_to_file(background_covariances, 
-                                os.path.join(args.model_dir, "background_covariances.txt"))
+                                os.path.join(args.model_dir, f"{video_basename}_background_covariances.txt"))
     
     # Generate the foreground mask
     print(f"Segmenting foreground with alpha={args.alpha}...")
