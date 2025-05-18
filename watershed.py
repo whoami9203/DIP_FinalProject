@@ -142,6 +142,42 @@ def sobel_rgb_gradient(image, ksize=5):
 
     return cv2.normalize(sobel_total, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
+import cv2
+import numpy as np
+
+def rgb_canny(image, low_thresh=100, high_thresh=200, combine='max'):
+    """
+    RGB-aware Canny edge detector using cv2.Canny on each channel.
+
+    Parameters:
+        image: Input RGB image (uint8)
+        low_thresh: Lower threshold for hysteresis
+        high_thresh: Upper threshold for hysteresis
+        combine: 'max' for union, 'mean' for average, 'or' for binary OR
+
+    Returns:
+        edges: Combined edge map (uint8)
+    """
+    assert image.ndim == 3 and image.shape[2] == 3, "Input must be an RGB image"
+
+    edges = []
+    for i in range(3):  # R, G, B channels
+        ch = image[:, :, i]
+        edge = cv2.Canny(ch, low_thresh, high_thresh)
+        edges.append(edge.astype(np.uint8))
+
+    if combine == 'max':
+        combined = np.max(np.stack(edges, axis=0), axis=0)
+    elif combine == 'mean':
+        combined = np.mean(np.stack(edges, axis=0), axis=0).astype(np.uint8)
+    elif combine == 'or':
+        combined = np.bitwise_or.reduce(np.stack(edges, axis=0))
+    else:
+        raise ValueError("combine must be one of: 'max', 'mean', 'or'")
+
+    return combined
+
+
 
 # Step 3: Eliminate small local minima (thresholding)
 def eliminate_small_local_minima(gradient, threshold=10):
@@ -210,12 +246,13 @@ def proposed_watershed_image(image):  #best:(3, 3, 0)
 
     # Step 1: VWME Preprocessing
     preprocessed = vwme_filter(image, window_size=3, epsilon=1e-5)
-    cv2.imwrite("preprocessed.png", preprocessed)
+    # cv2.imwrite("preprocessed.png", preprocessed)
     # preprocessed = image.copy()
 
     # Step 2: RGB Gradient Filtering
-    gradient = rgb_gradient_filter(preprocessed, window_size=3)
+    # gradient = rgb_gradient_filter(preprocessed, window_size=3)
     # gradient = sobel_rgb_gradient(preprocessed, ksize=3)
+    gradient = rgb_canny(preprocessed, 70, 100, 'mean')
 
     # Step 3: Eliminate small local minima
     filtered_gradient = eliminate_small_local_minima(gradient, threshold=0)
