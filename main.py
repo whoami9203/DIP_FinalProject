@@ -234,7 +234,7 @@ def main():
         print(f"Uses {video_basename}_foreground_mask")
         foreground_masks = read_mask_video(FOREGROUND_MASK_PATH)
     else:
-        print(f"Segmenting foreground with alpha={args.alpha}...")
+        print(f"\nSegmenting foreground with alpha={args.alpha}...")
         foreground_masks, diff_stats = foreground_segmentation(
             VIDEO_PATH, background_means, background_covariances, alpha=args.alpha)
         save_mask_video(foreground_masks, FOREGROUND_MASK_PATH, args.fps)
@@ -256,6 +256,7 @@ def main():
     else:
         print("Watershed...")
         watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
+        # save_mask_video(foreground_masks, WATERSHED_MASK_PATH, args.fps)
 
     # Apply the mask to the video
     print(f"Applying mask to video and saving result to {args.output}...")
