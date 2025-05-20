@@ -28,14 +28,10 @@ def save_mask_video(mask_frames, output_path, fps=15):
     for mask in mask_frames:
         if len(mask.shape) == 3:
             mask = mask[:, :, 0]
-        out.write(mask.astype(np.uint8))
+        out.write(mask.astype(np.uint8) * 255)
 
     out.release()
     print(f"✅ Saved mask video to: {output_path}")
-
-
-import cv2
-import numpy as np
 
 def read_mask_video(video_path):
     """
@@ -51,12 +47,10 @@ def read_mask_video(video_path):
         if not ret:
             break
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
-        frames.append(gray)
+        frames.append(gray / 255)  # Normalize to [0, 1]
 
     cap.release()
     return np.stack(frames, axis=0)  # shape: (N, H, W)
-
-
 
 def save_background_model(background_model, filepath):
     """
@@ -190,18 +184,27 @@ def main():
     covariances_model_path = os.path.join(args.model_dir, f"{video_basename}_covariances_model.npy")
     
     # Preprocessing
+    print(f"preprocess: {args.preprocess}")
     if args.preprocess:
         preprocessed_dir = os.path.join(os.path.dirname(args.output), "preprocessed")
-        os.makedirs(preprocessed_dir, exist_ok=True)
-        
-        input_filename = os.path.basename(args.input)
-        PREPROCESSED_VIDEO_PATH = os.path.join(preprocessed_dir, f"preprocessed_{input_filename}")
+        os.makedirs(preprocessed_dir, exist_ok=True)       
+
+        PREPROCESSED_VIDEO_PATH = os.path.join(preprocessed_dir, f"preprocessed_{video_basename}.mp4") 
         
         # Preprocess the video
         print(f"Preprocessing video to {target_width}x{target_height} at {args.fps} FPS...")
         preprocess_video(input_path=VIDEO_PATH, output_path=PREPROCESSED_VIDEO_PATH, 
                          horizontal=True, target_width=target_width, target_height=target_height, 
                          target_fps=args.fps, start_time=args.start_time, end_time=args.end_time)
+        VIDEO_PATH = PREPROCESSED_VIDEO_PATH
+    else:
+        preprocessed_dir = os.path.join(os.path.dirname(args.output), "preprocessed")
+        PREPROCESSED_VIDEO_PATH = os.path.join(preprocessed_dir, f"preprocessed_{video_basename}.mp4")
+        
+        # Check if the preprocessed video already exists
+        if not os.path.exists(PREPROCESSED_VIDEO_PATH):
+            # Error: Preprocessed video not found
+            raise FileNotFoundError(f"Preprocessed video not found at {PREPROCESSED_VIDEO_PATH}.")
         VIDEO_PATH = PREPROCESSED_VIDEO_PATH
 
     # Check if the model already exists
@@ -231,12 +234,17 @@ def main():
     # Generate the foreground mask
     FOREGROUND_MASK_PATH = f"Masks/{video_basename}_foreground_mask.mp4"
     if os.path.exists(FOREGROUND_MASK_PATH):
-        print(f"Uses {video_basename}_foreground_mask")
-        foreground_masks = read_mask_video(FOREGROUND_MASK_PATH)
+        # print(f"Uses {video_basename}_foreground_mask")
+        # foreground_masks = read_mask_video(FOREGROUND_MASK_PATH)
+
+        print(f"\nSegmenting foreground with alpha={args.alpha}...")
+        foreground_masks, diff_stats = foreground_segmentation(
+            VIDEO_PATH, video_basename, background_means, background_covariances, alpha=args.alpha)
+        save_mask_video(foreground_masks, FOREGROUND_MASK_PATH, args.fps)
     else:
         print(f"\nSegmenting foreground with alpha={args.alpha}...")
         foreground_masks, diff_stats = foreground_segmentation(
-            VIDEO_PATH, background_means, background_covariances, alpha=args.alpha)
+            VIDEO_PATH, video_basename, background_means, background_covariances, alpha=args.alpha)
         save_mask_video(foreground_masks, FOREGROUND_MASK_PATH, args.fps)
     
         # Print global statistics
@@ -249,14 +257,18 @@ def main():
         print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
     
     # Watershed Transform
-    WATERSHED_MASK_PATH = f"Masks/{video_basename}_foreground_mask.mp4"
+    WATERSHED_MASK_PATH = f"Masks/{video_basename}_watershed_mask.mp4"
     if os.path.exists(WATERSHED_MASK_PATH):
-        print(f"Uses {video_basename}_watershed_mask")
-        watershed_mask = read_mask_video(WATERSHED_MASK_PATH)
+        # print(f"Uses {video_basename}_watershed_mask")
+        # watershed_mask = read_mask_video(WATERSHED_MASK_PATH)
+
+        print("Watershed...")
+        watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
+        save_mask_video(watershed_mask, WATERSHED_MASK_PATH, args.fps)
     else:
         print("Watershed...")
         watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
-        # save_mask_video(foreground_masks, WATERSHED_MASK_PATH, args.fps)
+        save_mask_video(watershed_mask, WATERSHED_MASK_PATH, args.fps)
 
     # Apply the mask to the video
     print(f"Applying mask to video and saving result to {args.output}...")

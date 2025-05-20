@@ -343,39 +343,95 @@ def process_video(maskS_path, original_rgb_path, output_path, beta=0.5):
     pbar.close()
     print("Saved output to:", output_path)
 
-def watershed_video(maskS, original_rgb_path, beta=0.5):
-    cap_rgb = cv2.VideoCapture(original_rgb_path)
-
-    frame_count = int(cap_rgb.get(cv2.CAP_PROP_FRAME_COUNT))
-    pbar = tqdm(total=frame_count, desc="Processing video")
-
-    maskW = np.zeros_like(maskS)
-
-    idx = 0
-    while cap_rgb.isOpened():
-        ret_rgb, frame_rgb = cap_rgb.read()
-        if not ret_rgb:
-            break
+# Define this function at module level (outside any other functions)
+def process_frames_batch(frame_indices, maskS, original_rgb_path, beta):
+    """Process a batch of frames for watershed segmentation"""
+    # Create a local video capture object for this process
+    local_cap = cv2.VideoCapture(original_rgb_path)
+    results = []
+    
+    for idx in frame_indices:
+        if idx >= len(maskS):
+            continue
+            
+        # Set frame position
+        local_cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame_rgb = local_cap.read()
+        
+        if not ret:
+            results.append((idx, np.zeros_like(maskS[0])))
+            continue
+        
+        # Get corresponding mask
         mask_s = maskS[idx]
-
-        # mask_gray = cv2.cvtColor(frame_mask, cv2.COLOR_BGR2GRAY)
-        # _, mask_s = cv2.threshold(mask_s, 10, 255, cv2.THRESH_BINARY)
-
+        
+        # Process frame
         markers = proposed_watershed_image(frame_rgb)
         mask_w = region_coverage_testing(mask_s, markers, beta=beta)
+        
+        # Perform dilation to fill border lines
+        mask_w = cv2.dilate(mask_w, np.ones((3, 3), np.uint8), iterations=1)
+        
+        # Store result with its index
+        results.append((idx, mask_w))
+    
+    local_cap.release()
+    return results
 
+# Then modify the watershed_video function to use this external function
+def watershed_video(maskS, original_rgb_path, beta=0.5, num_processes=None):
+    """Parallel implementation of watershed video processing using multiprocessing."""
+    import multiprocessing as mp
+    from functools import partial
+    from tqdm import tqdm
+    
+    if num_processes is None:
+        num_processes = mp.cpu_count()
+    
+    # Get video properties
+    cap = cv2.VideoCapture(original_rgb_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    
+    # Create output array
+    maskW = np.zeros_like(maskS)
+    
+    # Split frames into batches
+    num_frames = min(len(maskS), total_frames)
+    frames_per_process = max(1, num_frames // num_processes)
+    frame_batches = [
+        list(range(i, min(i + frames_per_process, num_frames))) 
+        for i in range(0, num_frames, frames_per_process)
+    ]
+    
+    print(f"Processing {num_frames} frames using {num_processes} processes...")
+    
+    # Create a process pool and process batches in parallel
+    with mp.Pool(processes=num_processes) as pool:
+        # Create a partial function with fixed arguments
+        process_func = partial(
+            process_frames_batch,  # Now referencing the global function
+            maskS=maskS, 
+            original_rgb_path=original_rgb_path, 
+            beta=beta
+        )
+        
+        # Process batches and show progress
+        all_results = []
+        with tqdm(total=num_frames, desc="Processing frames") as pbar:
+            for batch_results in pool.imap_unordered(process_func, frame_batches):
+                all_results.extend(batch_results)
+                pbar.update(len(batch_results))
+    
+    # Populate result array using frame indices
+    for idx, mask_w in all_results:
         maskW[idx] = mask_w
-        pbar.update(1)
-        idx += 1
-
-    cap_rgb.release()
-    pbar.close()
-
+    
     return maskW
 
-process_video(
-    maskS_path="Results/output2.mp4",            # Binary shadow-cancelled mask video
-    original_rgb_path="Results/preprocessed/preprocessed_test2.mp4",  # Original RGB video (needed for watershed gradient)
-    output_path="Results/maskW_output2.mp4",          # Final output with refined masks
-    beta=0.4                                 # Region coverage threshold
-)
+# process_video(
+#     maskS_path="Results/output2.mp4",            # Binary shadow-cancelled mask video
+#     original_rgb_path="Results/preprocessed/preprocessed_test2.mp4",  # Original RGB video (needed for watershed gradient)
+#     output_path="Results/maskW_output2.mp4",          # Final output with refined masks
+#     beta=0.4                                 # Region coverage threshold
+# )

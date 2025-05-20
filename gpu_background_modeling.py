@@ -321,7 +321,7 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3, variance_multipl
                         
                         # Process all pixels in parallel on GPU
                         batch_bics, batch_centers, batch_covariances = gpu_batch_kmeans(
-                            kmeans_kernel, postprocess_kernel, batch_data_gpu, k, 100
+                            kmeans_kernel, postprocess_kernel, batch_data_gpu, k, 200
                         )
                         
                         # Transfer results back to CPU

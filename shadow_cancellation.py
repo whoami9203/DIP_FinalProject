@@ -6,6 +6,7 @@ import multiprocessing as mp
 
 def shadow_cancellation(
         video_path: str,
+        video_basename: str,
         masks: np.ndarray,
         background_mean: np.ndarray,
         T_L: float = 64.0,     # Luminance threshold
@@ -51,9 +52,6 @@ def shadow_cancellation(
     
     if (frame_height, frame_width, 3) != background_mean.shape:
         raise ValueError("Video dimensions don't match background model dimensions")
-    
-    # Extract base name of the video for debug outputs
-    video_basename = os.path.splitext(os.path.basename(video_path))[0]
     
     # Create Shadow directory if it doesn't exist
     os.makedirs("Shadow", exist_ok=True)
@@ -223,13 +221,7 @@ def shadow_cancellation(
     grad_writer.release()
     shadow_writer.release()
     
-    # Report statistics
-    original_fg = np.sum(masks > 0)
-    refined_fg = np.sum(refined_masks > 0)
-    reduction = 100.0 * (original_fg - refined_fg) / original_fg if original_fg > 0 else 0
-    
     print(f"Shadow cancellation complete. Processed {frame_idx} frames.")
-    print(f"Removed approximately {reduction:.2f}% of pixels from foreground masks.")
     print(f"Debug videos saved to Shadow/{video_basename}_*.mp4")
     
     return refined_masks.astype(np.uint8)
