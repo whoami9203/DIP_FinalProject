@@ -21,9 +21,9 @@ def save_mask_video(mask_frames, output_path, fps=15):
         output_path: path to the output video file
         fps: frames per second for output video
     """
-    
+
     # Ensure output directory exists
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     h, w = mask_frames.shape[1:3]
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # or use 'XVID'
@@ -253,14 +253,14 @@ def main():
         print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
     
     # Watershed Transform
-    WATERSHED_MASK_PATH = f"Masks/{video_basename}_foreground_mask.mp4"
+    WATERSHED_MASK_PATH = f"Masks/{video_basename}_watershed_mask.mp4"
     if os.path.exists(WATERSHED_MASK_PATH):
         print(f"Uses {video_basename}_watershed_mask")
         watershed_mask = read_mask_video(WATERSHED_MASK_PATH)
     else:
         print("Watershed...")
         watershed_mask = watershed_video(foreground_masks, VIDEO_PATH, beta=0.4)
-        # save_mask_video(foreground_masks, WATERSHED_MASK_PATH, args.fps)
+        save_mask_video(foreground_masks, WATERSHED_MASK_PATH, args.fps)
 
     # Apply the mask to the video
     print(f"Applying mask to video and saving result to {args.output}...")
