@@ -7,7 +7,7 @@ from shadow_cancellation import shadow_cancellation
 
 def masks_noise_removal(
         masks: np.ndarray,
-        min_area: int = 80,
+        min_area: int = 60,
         closing_kernel_size: int = 5
         ) -> np.ndarray:
     """
@@ -166,45 +166,69 @@ def foreground_segmentation(
     
     # Transpose mahalanobis_distances to get (height, width, frames) for easier statistics computation
     # This makes each pixel's time series contiguous in memory
-    mahalanobis_distances = np.transpose(mahalanobis_distances, (1, 2, 0))  # Now shape is (height, width, num_frames)
+    # mahalanobis_distances = np.transpose(mahalanobis_distances, (1, 2, 0))  # Now shape is (height, width, num_frames)
     
-    # Compute statistics for each pixel position
-    print("Computing Mahalanobis distance statistics for each position...")
+    # # Compute statistics for each pixel position
+    # print("Computing Mahalanobis distance statistics for each position...")
     
-    # Compute statistics all at once (vectorized)
-    mahalanobis_statistics = {
-        'variance': np.var(mahalanobis_distances, axis=2),
-        'mean': np.mean(mahalanobis_distances, axis=2),
-        'q1': np.percentile(mahalanobis_distances, 25, axis=2),
-        'q2': np.percentile(mahalanobis_distances, 50, axis=2),  # median
-        'q3': np.percentile(mahalanobis_distances, 75, axis=2)
-    }
+    # # Compute statistics all at once (vectorized)
+    # mahalanobis_statistics = {
+    #     'variance': np.var(mahalanobis_distances, axis=2),
+    #     'mean': np.mean(mahalanobis_distances, axis=2),
+    #     'q1': np.percentile(mahalanobis_distances, 25, axis=2),
+    #     'q2': np.percentile(mahalanobis_distances, 50, axis=2),  # median
+    #     'q3': np.percentile(mahalanobis_distances, 75, axis=2)
+    # }
     
-    # Calculate IQR
-    mahalanobis_statistics['iqr'] = mahalanobis_statistics['q3'] - mahalanobis_statistics['q1']
+    # # Calculate IQR
+    # mahalanobis_statistics['iqr'] = mahalanobis_statistics['q3'] - mahalanobis_statistics['q1']
     
-    print("Mahalanobis distance statistics computation complete.")
+    # print("Mahalanobis distance statistics computation complete.")
     
-    # Add global statistics
-    mahalanobis_statistics['global'] = {
-        'variance_mean': np.mean(mahalanobis_statistics['variance']),
-        'variance_median': np.median(mahalanobis_statistics['variance']),
-        'mean_mean': np.mean(mahalanobis_statistics['mean']),
-        'mean_median': np.median(mahalanobis_statistics['mean']),
-        'q1_mean': np.mean(mahalanobis_statistics['q1']),
-        'q2_mean': np.mean(mahalanobis_statistics['q2']),
-        'q3_mean': np.mean(mahalanobis_statistics['q3']),
-        'iqr_mean': np.mean(mahalanobis_statistics['iqr']),
-        'q1_median': np.median(mahalanobis_statistics['q1']),
-        'q2_median': np.median(mahalanobis_statistics['q2']),
-        'q3_median': np.median(mahalanobis_statistics['q3']),
-        'iqr_median': np.median(mahalanobis_statistics['iqr'])
-    }
+    # # Add global statistics
+    # mahalanobis_statistics['global'] = {
+    #     'variance_mean': np.mean(mahalanobis_statistics['variance']),
+    #     'variance_median': np.median(mahalanobis_statistics['variance']),
+    #     'mean_mean': np.mean(mahalanobis_statistics['mean']),
+    #     'mean_median': np.median(mahalanobis_statistics['mean']),
+    #     'q1_mean': np.mean(mahalanobis_statistics['q1']),
+    #     'q2_mean': np.mean(mahalanobis_statistics['q2']),
+    #     'q3_mean': np.mean(mahalanobis_statistics['q3']),
+    #     'iqr_mean': np.mean(mahalanobis_statistics['iqr']),
+    #     'q1_median': np.median(mahalanobis_statistics['q1']),
+    #     'q2_median': np.median(mahalanobis_statistics['q2']),
+    #     'q3_median': np.median(mahalanobis_statistics['q3']),
+    #     'iqr_median': np.median(mahalanobis_statistics['iqr'])
+    # }
 
+    # Save the unclean foreground masks as a video
+    output_unclean_masks_path = f"{video_basename}_unclean_masks.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out_unclean = cv2.VideoWriter(output_unclean_masks_path, fourcc, 15.0, (width, height))
+    # Write each frame to the unclean masks video
+    print(f"Saving unclean masks to {output_unclean_masks_path}")
+    for i in range(frame_idx):
+        # Convert binary mask to 3-channel (required for mp4)
+        mask_frame = np.stack([foreground_masks[i]*255]*3, axis=-1).astype(np.uint8)
+        out_unclean.write(mask_frame)
+    out_unclean.release()
+    
     # Apply noise removal to the masks
     foreground_masks = masks_noise_removal(foreground_masks)
+    
+    # Save the cleaned foreground masks as a video
+    output_clean_masks_path = f"{video_basename}_clean_masks.mp4"
+    out_clean = cv2.VideoWriter(output_clean_masks_path, fourcc, 15.0, (width, height))
+    # Write each frame to the clean masks video
+    print(f"Saving clean masks to {output_clean_masks_path}")
+    for i in range(frame_idx):
+        # Convert binary mask to 3-channel (required for mp4)
+        mask_frame = np.stack([foreground_masks[i]*255]*3, axis=-1).astype(np.uint8)
+        out_clean.write(mask_frame)
+    out_clean.release()
 
     # Apply shadow cancellation if needed
+    print("Applying shadow cancellation...")
     shadowless_masks = shadow_cancellation(
         video_path=video_path,
         video_basename=video_basename,
@@ -213,10 +237,21 @@ def foreground_segmentation(
         window_size=3
     )
 
-    # Apply and operation to combine masks
+    # Save the shadowless masks as a video
+    output_shadowless_masks_path = f"{video_basename}_shadowless_masks.mp4"
+    out_shadowless = cv2.VideoWriter(output_shadowless_masks_path, fourcc, 15.0, (width, height))
+    # Write each frame to the shadowless masks video
+    print(f"Saving shadowless masks to {output_shadowless_masks_path}")
+    for i in range(frame_idx):
+        # Convert binary mask to 3-channel (required for mp4)
+        mask_frame = np.stack([shadowless_masks[i]*255]*3, axis=-1).astype(np.uint8)
+        out_shadowless.write(mask_frame)
+    out_shadowless.release()
+
+    # Apply AND operation to combine masks
     foreground_masks = np.logical_and(foreground_masks, shadowless_masks).astype(np.uint8)
     
-    return foreground_masks, mahalanobis_statistics
+    return foreground_masks
 
 def apply_mask_to_video(
         input_video_path: str, 

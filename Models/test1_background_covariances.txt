@@ -1,27 +1,27 @@
 Background Covariances - Shape: (480, 854, 3)
-Min value: 0.05000000074505806, Max value: 974.8629760742188
-Mean value: 3.069486618041992, Std: 12.543050765991211
+Min value: 0.05000000074505806, Max value: 3566.353271484375
+Mean value: 45.55095672607422, Std: 183.617919921875
 
 Channel 0 statistics:
-  Min: 0.050000, Max: 973.604492
-  Mean: 3.482324, Median: 2.202491
-  Std: 13.586452
-  Quartiles: Q1=1.241924, Q2=2.202491, Q3=3.531006
-  Interquartile Range (IQR): 2.289082
+  Min: 0.050000, Max: 3505.177002
+  Mean: 48.360798, Median: 4.442215
+  Std: 193.578552
+  Quartiles: Q1=2.425537, Q2=4.442215, Q3=7.794678
+  Interquartile Range (IQR): 5.369141
 
 Channel 1 statistics:
-  Min: 0.050000, Max: 974.862976
-  Mean: 2.710860, Median: 1.628662
-  Std: 12.619270
-  Quartiles: Q1=0.916627, Q2=1.628662, Q3=2.664531
-  Interquartile Range (IQR): 1.747903
+  Min: 0.050000, Max: 3566.353271
+  Mean: 45.968605, Median: 3.311252
+  Std: 187.136719
+  Quartiles: Q1=1.717997, Q2=3.311252, Q3=5.835938
+  Interquartile Range (IQR): 4.117941
 
 Channel 2 statistics:
-  Min: 0.050000, Max: 920.025391
-  Mean: 3.015277, Median: 1.877166
-  Std: 11.306839
-  Quartiles: Q1=1.043779, Q2=1.877166, Q3=3.041943
-  Interquartile Range (IQR): 1.998164
+  Min: 0.050000, Max: 3292.530762
+  Mean: 42.323498, Median: 3.799531
+  Std: 169.219803
+  Quartiles: Q1=2.053711, Q2=3.799531, Q3=6.611909
+  Interquartile Range (IQR): 4.558198
 
 Sample values from center region:
 Format: [R variance, G variance, B variance]
@@ -54,38 +54,38 @@ Position (242, 429): [0.343002, 0.343002, 0.343002]
 
 Histogram data (10 bins):
 Channel 0 histogram:
-  Bin 0 (0.050000 to 97.405449): 409458 values
-  Bin 1 (97.405449 to 194.760895): 204 values
-  Bin 2 (194.760895 to 292.116333): 84 values
-  Bin 3 (292.116333 to 389.471802): 46 values
-  Bin 4 (389.471802 to 486.827240): 33 values
-  Bin 5 (486.827240 to 584.182678): 15 values
-  Bin 6 (584.182678 to 681.538147): 35 values
-  Bin 7 (681.538147 to 778.893616): 24 values
-  Bin 8 (778.893616 to 876.249023): 15 values
-  Bin 9 (876.249023 to 973.604492): 6 values
+  Bin 0 (0.050000 to 350.562714): 393198 values
+  Bin 1 (350.562714 to 701.075378): 5535 values
+  Bin 2 (701.075378 to 1051.588135): 6465 values
+  Bin 3 (1051.588135 to 1402.100830): 3246 values
+  Bin 4 (1402.100830 to 1752.613525): 1094 values
+  Bin 5 (1752.613525 to 2103.126221): 252 values
+  Bin 6 (2103.126221 to 2453.638916): 60 values
+  Bin 7 (2453.638916 to 2804.151611): 42 values
+  Bin 8 (2804.151611 to 3154.664307): 21 values
+  Bin 9 (3154.664307 to 3505.177002): 7 values
 
 Channel 1 histogram:
-  Bin 0 (0.050000 to 97.531296): 409537 values
-  Bin 1 (97.531296 to 195.012589): 165 values
-  Bin 2 (195.012589 to 292.493896): 67 values
-  Bin 3 (292.493896 to 389.975189): 38 values
-  Bin 4 (389.975189 to 487.456482): 29 values
-  Bin 5 (487.456482 to 584.937805): 14 values
-  Bin 6 (584.937805 to 682.419067): 29 values
-  Bin 7 (682.419067 to 779.900391): 23 values
-  Bin 8 (779.900391 to 877.381653): 10 values
-  Bin 9 (877.381653 to 974.862976): 8 values
+  Bin 0 (0.050000 to 356.680328): 393166 values
+  Bin 1 (356.680328 to 713.310669): 6355 values
+  Bin 2 (713.310669 to 1069.941040): 6682 values
+  Bin 3 (1069.941040 to 1426.571289): 2589 values
+  Bin 4 (1426.571289 to 1783.201660): 829 values
+  Bin 5 (1783.201660 to 2139.832031): 194 values
+  Bin 6 (2139.832031 to 2496.462402): 36 values
+  Bin 7 (2496.462402 to 2853.092529): 41 values
+  Bin 8 (2853.092529 to 3209.722900): 22 values
+  Bin 9 (3209.722900 to 3566.353271): 6 values
 
 Channel 2 histogram:
-  Bin 0 (0.050000 to 92.047539): 409410 values
-  Bin 1 (92.047539 to 184.045074): 297 values
-  Bin 2 (184.045074 to 276.042603): 57 values
-  Bin 3 (276.042603 to 368.040161): 43 values
-  Bin 4 (368.040161 to 460.037689): 35 values
-  Bin 5 (460.037689 to 552.035217): 49 values
-  Bin 6 (552.035217 to 644.032776): 12 values
-  Bin 7 (644.032776 to 736.030334): 5 values
-  Bin 8 (736.030334 to 828.027832): 8 values
-  Bin 9 (828.027832 to 920.025391): 4 values
+  Bin 0 (0.050000 to 329.298065): 393170 values
+  Bin 1 (329.298065 to 658.546143): 7446 values
+  Bin 2 (658.546143 to 987.794250): 5808 values
+  Bin 3 (987.794250 to 1317.042358): 2461 values
+  Bin 4 (1317.042358 to 1646.290405): 674 values
+  Bin 5 (1646.290405 to 1975.538452): 208 values
+  Bin 6 (1975.538452 to 2304.786621): 88 values
+  Bin 7 (2304.786621 to 2634.034668): 40 values
+  Bin 8 (2634.034668 to 2963.282715): 19 values
+  Bin 9 (2963.282715 to 3292.530762): 6 values
 

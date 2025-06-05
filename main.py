@@ -238,23 +238,23 @@ def main():
         # foreground_masks = read_mask_video(FOREGROUND_MASK_PATH)
 
         print(f"\nSegmenting foreground with alpha={args.alpha}...")
-        foreground_masks, diff_stats = foreground_segmentation(
+        foreground_masks = foreground_segmentation(
             VIDEO_PATH, video_basename, background_means, background_covariances, alpha=args.alpha)
         save_mask_video(foreground_masks, FOREGROUND_MASK_PATH, args.fps)
     else:
         print(f"\nSegmenting foreground with alpha={args.alpha}...")
-        foreground_masks, diff_stats = foreground_segmentation(
+        foreground_masks = foreground_segmentation(
             VIDEO_PATH, video_basename, background_means, background_covariances, alpha=args.alpha)
         save_mask_video(foreground_masks, FOREGROUND_MASK_PATH, args.fps)
     
         # Print global statistics
-        print("Difference magnitude statistics:")
-        print(f"Mean variance: {diff_stats['global']['variance_mean']:.4f}")
-        print(f"Median of all pixels: {diff_stats['global']['q2_mean']:.4f}")
-        print(f"q1 median: {diff_stats['global']['q1_median']:.4f}")
-        print(f"q2 median: {diff_stats['global']['q2_median']:.4f}")
-        print(f"q3 median: {diff_stats['global']['q3_median']:.4f}")
-        print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
+        # print("Difference magnitude statistics:")
+        # print(f"Mean variance: {diff_stats['global']['variance_mean']:.4f}")
+        # print(f"Median of all pixels: {diff_stats['global']['q2_mean']:.4f}")
+        # print(f"q1 median: {diff_stats['global']['q1_median']:.4f}")
+        # print(f"q2 median: {diff_stats['global']['q2_median']:.4f}")
+        # print(f"q3 median: {diff_stats['global']['q3_median']:.4f}")
+        # print(f"IQR median: {diff_stats['global']['iqr_median']:.4f}")
     
     # Watershed Transform
     WATERSHED_MASK_PATH = f"Masks/{video_basename}_watershed_mask.mp4"

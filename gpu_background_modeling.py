@@ -332,7 +332,7 @@ def gpu_k_means_background_clustering(video_path: str, max_k=3, variance_multipl
                         # After processing all pixels in the batch, update the best values
                         for i, (y, x) in enumerate(batch_positions):
                             # Only update if this clustering is better than the existing one
-                            if batch_bics_cpu[i] > best_bics.get((y, x), float('-inf')):
+                            if batch_bics_cpu[i] < best_bics.get((y, x), float('-inf')):
                                 best_bics[(y, x)] = batch_bics_cpu[i]
                                 optimal_k_values[y, x] = k
                                 background_means[y, x] = batch_centers_cpu[i]
