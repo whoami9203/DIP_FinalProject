@@ -166,12 +166,20 @@ def rgb_canny(image, low_thresh=100, high_thresh=200, combine='max'):
         edge = cv2.Canny(ch, low_thresh, high_thresh)
         edges.append(edge.astype(np.uint8))
 
+    
+
     if combine == 'max':
         combined = np.max(np.stack(edges, axis=0), axis=0)
     elif combine == 'mean':
         combined = np.mean(np.stack(edges, axis=0), axis=0).astype(np.uint8)
     elif combine == 'or':
         combined = np.bitwise_or.reduce(np.stack(edges, axis=0))
+    elif combine == 'add':
+        for i in range(3):
+            edges[i] = edges[i].astype(np.uint32)
+        combined = np.sum(np.stack(edges, axis=0), axis=0)
+        combined[combined > 255] = 255
+        combined = combined.astype(np.uint8)
     else:
         raise ValueError("combine must be one of: 'max', 'mean', 'or'")
 
@@ -214,9 +222,8 @@ def apply_watershed(image, gradient):
     inv_grad = 255 - gradient
 
     # Use distance transform for better markers
-    # cv2.imwrite("gradient.png", inv_grad)
     _, inv_grad = cv2.threshold(inv_grad, 230, 255, cv2.THRESH_BINARY) #  + cv2.THRESH_OTSU
-    cv2.imwrite("gradient.png", inv_grad)
+    # cv2.imwrite("gradient.png", inv_grad)
 
     # opening = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3)), iterations=2)
     # dist = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
@@ -246,17 +253,17 @@ def proposed_watershed_image(image):  #best:(3, 3, 0)
 
     # Step 1: VWME Preprocessing
     preprocessed = vwme_filter(image, window_size=3, epsilon=1e-5)
-    # cv2.imwrite("preprocessed.png", preprocessed)
+    cv2.imwrite("preprocessed.png", preprocessed)
     # preprocessed = image.copy()
 
     # Step 2: RGB Gradient Filtering
     # gradient = rgb_gradient_filter(preprocessed, window_size=3)
     # gradient = sobel_rgb_gradient(preprocessed, ksize=3)
-    gradient = rgb_canny(preprocessed, 70, 100, 'mean')
+    gradient = rgb_canny(preprocessed, 70, 100, 'add')
+    cv2.imwrite("gradient.png", gradient)
 
     # Step 3: Eliminate small local minima
     filtered_gradient = eliminate_small_local_minima(gradient, threshold=0)
-    # cv2.imwrite("gradient.png", filtered_gradient)
 
     # Step 4: Watershed Transform
     markers = apply_watershed(preprocessed, filtered_gradient)
@@ -303,6 +310,9 @@ def region_coverage_testing(mask_s, watershed_markers, beta=0.5):
         if coverage >= beta:
             mask_w[region_mask] = mask_s[region_mask]  # Mark region as foreground
 
+    mask_w = cv2.dilate(mask_w, np.ones((3, 3), np.uint8), iterations=1)
+    mask_w = cv2.erode(mask_w, np.ones((3, 3), np.uint8), iterations=1)
+
     return mask_w
 
 
@@ -335,6 +345,7 @@ def process_video(maskS_path, original_rgb_path, output_path, beta=0.5):
         mask_w = region_coverage_testing(mask_s, markers, beta=beta)
 
         out.write(mask_w)
+        cv2.imwrite("maskW.png", mask_w)
         pbar.update(1)
 
     cap_rgb.release()

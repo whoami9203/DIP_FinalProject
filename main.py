@@ -21,6 +21,10 @@ def save_mask_video(mask_frames, output_path, fps=15):
         output_path: path to the output video file
         fps: frames per second for output video
     """
+
+    # Ensure output directory exists
+    # os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
     h, w = mask_frames.shape[1:3]
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # or use 'XVID'
     out = cv2.VideoWriter(output_path, fourcc, fps, (w, h), isColor=False)
